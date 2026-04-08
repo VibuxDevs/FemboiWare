@@ -128,7 +128,8 @@ class FemboiWare:
 
         tw.protocol("WM_DELETE_WINDOW", lambda t=tw: self._on_try_close(t))
         self.windows.append(tw)
-        self._move_loop(tw)
+        # Defer first tick so the window is mapped; immediate winfo_* can TclError and kill the loop.
+        self.root.after(0, lambda wi=tw: self._move_loop(wi))
 
     @staticmethod
     def _on_press(w: tk.Toplevel, lbl: tk.Label, e: tk.Event) -> None:
@@ -150,6 +151,8 @@ class FemboiWare:
             return
         try:
             if not w.winfo_exists():
+                if w in self.windows:
+                    self.windows.remove(w)
                 return
             vx = int(w._vx)  # type: ignore[attr-defined]
             vy = int(w._vy)  # type: ignore[attr-defined]
@@ -181,8 +184,18 @@ class FemboiWare:
             if bounced_x or bounced_y:
                 self._spawn(sw, sh)
         except tk.TclError:
+            pass
+
+        if not self.running or w not in self.windows:
             return
-        w.after(MOVE_INTERVAL_MS, lambda: self._move_loop(w))
+        # Use root.after + default-arg lambda so every femboi keeps ticking; w.after on borderless
+        # children often drops timers so only one window would animate and hit walls.
+        try:
+            self.root.after(
+                MOVE_INTERVAL_MS, lambda wi=w: self._move_loop(wi)
+            )
+        except tk.TclError:
+            pass
 
     def _on_try_close(self, w: tk.Toplevel) -> None:
         if not self.running:
